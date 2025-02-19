@@ -1,5 +1,7 @@
 # Salchicha
 
+[![hex.pm](https://img.shields.io/hexpm/v/salchicha.svg)](https://hex.pm/packages/salchicha/)
+
 A pure-ish Elixir cryptography tool for the Salsa20 and ChaCha20 ciphers.
 
 ## Installation
