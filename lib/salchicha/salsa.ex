@@ -29,11 +29,16 @@ defmodule Salchicha.Salsa do
   - Minimized the number binary copies, returning iolists when appropriate, instead of concatenating binaries
   - XOR whole keystream and message blocks instead of XOR'ing one byte at a time
   - Poly1305 MAC handled by `:crypto` module instead of implemented in elixir
-  - Only support 32-byte keys and 24-byte nonces (XSalsa20) instead of full NaCl/libsodium API
+  - Only supporting Salsa/ChaCha family ciphers, not full NaCl/libsodium API
 
   Additionally there appears to be a bug in how Kcl serializes the 16-byte block count during key expansion:
   According to the spec it's supposed to be little endian, and it happens to be for blocks 0-255, but for larger
   block counts, Kcl would be incompatible with NaCl/libsodium-type libraries.
+
+  The XOR'ing of the keystream and message occurs one block (64 bytes) at a time using `:crypto.exor/2`, which
+  is implemented as a NIF, but this could have just as easily been done in elixir by casting the
+  keystream and message block binaries into 512-bit integers, passing them to `Bitwise.bxor/2`, and casting the result
+  into a binary.
 
   The cipher functions were implemented in the order they're defined in the original Salsa specification,
   and though it's using a lot of explicit binary pattern matching, it turned out to be quite legible.
@@ -122,9 +127,9 @@ defmodule Salchicha.Salsa do
   end
 
   @doc """
-  HSalsa20 hash function for deriving a sub-key for XSalsa20.
+  HSalsa20 hash function for deriving a sub-key for XSalsa20. Crypto primitive.
   """
-  @spec hsalsa20(Salchicha.secret_key(), Salchicha.nonce()) :: Salchicha.secret_key()
+  @spec hsalsa20(Salchicha.secret_key(), Salchicha.extended_nonce()) :: Salchicha.secret_key()
   def hsalsa20(<<key::bytes-32>> = _key, <<first_sixteen::bytes-16, _last::bytes-8>> = _nonce) do
     key
     |> expand(first_sixteen)
@@ -133,12 +138,15 @@ defmodule Salchicha.Salsa do
     |> hsalsa20_block_tuple_to_binary()
   end
 
+  @spec xsalsa20_key_and_nonce(Salchicha.secret_key(), Salchicha.extended_nonce()) ::
+          {Salchicha.secret_key(), Salchicha.salsa_nonce()}
   defp xsalsa20_key_and_nonce(<<key::bytes-32>> = _k, <<nonce::bytes-24>> = _n) do
     xsalsa20_key = hsalsa20(key, nonce)
     <<_first_sixteen::bytes-16, xsalsa20_nonce::bytes-8>> = nonce
     {xsalsa20_key, xsalsa20_nonce}
   end
 
+  # Shared with ChaCha
   @doc false
   def block_binary_to_tuple(
         <<x0::little-32, x1::little-32, x2::little-32, x3::little-32, x4::little-32,
@@ -154,10 +162,12 @@ defmodule Salchicha.Salsa do
       x8::little-32, x9::little-32>>
   end
 
-  defp sum_blocks(
-         {x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15},
-         {y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, y11, y12, y13, y14, y15}
-       ) do
+  # Shared with ChaCha
+  @doc false
+  def sum_blocks(
+        {x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15},
+        {y0, y1, y2, y3, y4, y5, y6, y7, y8, y9, y10, y11, y12, y13, y14, y15}
+      ) do
     <<sum(x0, y0)::little-32, sum(x1, y1)::little-32, sum(x2, y2)::little-32,
       sum(x3, y3)::little-32, sum(x4, y4)::little-32, sum(x5, y5)::little-32,
       sum(x6, y6)::little-32, sum(x7, y7)::little-32, sum(x8, y8)::little-32,
@@ -166,11 +176,13 @@ defmodule Salchicha.Salsa do
       sum(x15, y15)::little-32>>
   end
 
-  defp bxor_block(<<keystream::bytes-64>>, <<message::bytes-64>>) do
+  # Shared with ChaCha
+  @doc false
+  def bxor_block(<<keystream::bytes-64>>, <<message::bytes-64>>) do
     :crypto.exor(keystream, message)
   end
 
-  defp bxor_block(<<keystream::bytes-64>>, message) when byte_size(message) < 64 do
+  def bxor_block(<<keystream::bytes-64>>, message) when byte_size(message) < 64 do
     keystream
     |> binary_part(0, byte_size(message))
     |> :crypto.exor(message)
@@ -187,13 +199,10 @@ defmodule Salchicha.Salsa do
     |> sum_blocks(block)
   end
 
-  defp crypt(key, nonce, message, block_count \\ 0, outputs \\ [])
+  defp crypt(key, nonce, message, block_count, outputs \\ [])
 
-  defp crypt(key, nonce, <<message::bytes-64, rest::binary>>, block_count, outputs) do
-    crypt(key, nonce, {message, rest}, block_count, outputs)
-  end
-
-  defp crypt(key, nonce, {<<message::bytes-64>>, <<rest::binary>>}, block_count, outputs) do
+  defp crypt(key, nonce, <<message::bytes-64, rest::binary>>, block_count, outputs)
+       when byte_size(rest) > 0 do
     output_block = crypt_block(key, nonce, message, block_count)
     crypt(key, nonce, rest, block_count + 1, [output_block | outputs])
   end
@@ -202,6 +211,8 @@ defmodule Salchicha.Salsa do
     output_block = crypt_block(key, nonce, message, block_count)
     _final_outputs = Enum.reverse([output_block | outputs])
   end
+
+  defp crypt_block(_key, _nonce, <<>>, _block_count), do: <<>>
 
   defp crypt_block(key, nonce, message, block_count) do
     keystream = keystream_block(key, nonce, block_count)
@@ -217,7 +228,7 @@ defmodule Salchicha.Salsa do
   end
 
   defp prepare_message(<<whole_message::binary>>) do
-    <<0::unit(8)-size(32), whole_message::binary>>
+    {<<0::unit(8)-size(32), whole_message::binary>>, _rest = <<>>}
   end
 
   @spec xsalsa20_poly1305_encrypt(binary(), <<_::192>>, <<_::256>>) ::
@@ -229,13 +240,16 @@ defmodule Salchicha.Salsa do
       ) do
     {xsalsa_key, xsalsa_nonce} = xsalsa20_key_and_nonce(key, nonce)
 
-    message = prepare_message(plain_text)
+    {message_head, message_tail} = prepare_message(plain_text)
 
-    # First block is guaranteed to be at least 32 bytes
-    [<<mac_otp::bytes-32, cipher_text_head::binary>> | cipher_text_tail] =
-      crypt(xsalsa_key, xsalsa_nonce, message)
+    # This returns exactly 1 block
+    [<<mac_otp::bytes-32, cipher_text_head::binary>>] =
+      crypt(xsalsa_key, xsalsa_nonce, message_head, _block_count = 0)
 
-    cipher_text = [cipher_text_head | cipher_text_tail]
+    cipher_text = [
+      cipher_text_head
+      | _cipher_text_tail = crypt(xsalsa_key, xsalsa_nonce, message_tail, _block_count = 1)
+    ]
 
     tag = :crypto.mac(:poly1305, mac_otp, cipher_text)
 
@@ -250,26 +264,38 @@ defmodule Salchicha.Salsa do
       ) do
     {xsalsa_key, xsalsa_nonce} = xsalsa20_key_and_nonce(key, nonce)
 
-    message = prepare_message(cipher_text)
+    {message_head, message_tail} = prepare_message(cipher_text)
 
-    # First block is guaranteed to be at least 32 bytes
-    [<<mac_otp::bytes-32, plain_text_head::binary>> | plain_text_tail] =
-      crypt(xsalsa_key, xsalsa_nonce, message)
+    [<<mac_otp::bytes-32, plain_text_head::binary>>] =
+      crypt(xsalsa_key, xsalsa_nonce, message_head, _block_count = 0)
 
     case :crypto.mac(:poly1305, mac_otp, cipher_text) do
-      ^cipher_tag -> [plain_text_head | plain_text_tail]
-      _error -> :error
+      ^cipher_tag ->
+        [
+          plain_text_head
+          | _plain_text_tail = crypt(xsalsa_key, xsalsa_nonce, message_tail, _block_count = 1)
+        ]
+
+      _error ->
+        :error
     end
   end
 
   @doc """
-  Plain Salsa20 Cipher
+  Plain Salsa20 Cipher. Crypto primitive.
 
   XOR a message (encrypt or decrypt) with Salsa20.
   This uses 8 byte nonces and isn't authenticated with Poly1305 MAC.
+  Block count starts at 0 by default.
   """
-  @spec salsa20_xor(binary(), <<_::64>>, <<_::256>>) :: iolist()
-  def salsa20_xor(message, <<nonce::bytes-8>> = _nonce, <<key::bytes-32>> = _key) do
-    crypt(key, nonce, message)
+  @spec salsa20_xor(binary(), Salchicha.salsa_nonce(), Salchicha.secret_key(), non_neg_integer()) ::
+          iolist()
+  def salsa20_xor(
+        message,
+        <<nonce::bytes-8>> = _nonce,
+        <<key::bytes-32>> = _key,
+        initial_block_count \\ 0
+      ) do
+    crypt(key, nonce, message, initial_block_count)
   end
 end

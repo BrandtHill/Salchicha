@@ -13,9 +13,15 @@ defmodule Salchicha do
   is not. The HChaCha20 hash function, an intermediate step for generating an XChaCha20 sub-key,
   is implemented in Elixir so `:crypto` can be leveraged for XChaCha20_Poly1305.
 
+  The ChaCha20/XChaCha20 ciphers do also have pure Elixir implementations just like Salsa20/XSalsa20,
+  but unless you are concerned with long-running NIFs blocking schedulers, you should prefer to use
+  the versions that fully leverage `:crypto` NIFs, the behaviour of applicable functions in this module.
+  If you wish to you use the elixir implementations, you can call them directly with the functions
+  available in `Salchicha.Chacha` ending in `_pure`.
+
   While this module contains everything you'll need to encrypt and decrypt with XSalsa20_Poly1305
   and XChaCha20_Poly1305 authenticated ciphers, the internal modules `Salchicha.Salsa` and
-  `Salchicha.Chacha` are documented for educational purposes and expose a few lower level functions.
+  `Salchicha.Chacha` are documented for educational purposes and expose a few primitives.
   """
 
   alias Salchicha.Chacha
@@ -25,7 +31,24 @@ defmodule Salchicha do
   @key_size 32
   @tag_size 16
 
-  @type nonce() :: <<_::192>>
+  @typedoc """
+  24-byte extended nonce used by the XSalsa20 and XChaCha20 ciphers
+  """
+  @type extended_nonce() :: <<_::192>>
+
+  @typedoc """
+  8-byte nonce used by the Salsa20 cipher
+  """
+  @type salsa_nonce() :: <<_::64>>
+
+  @typedoc """
+  12-byte nonce used by the ChaCha20 (IETF) cipher
+  """
+  @type chacha_nonce() :: <<_::96>>
+
+  @typedoc """
+  32-byte shared secret key used by all variations of Salsa/ChaCha
+  """
   @type secret_key() :: <<_::256>>
   @type message() :: iodata()
   @type encrypted_message() :: iodata()
@@ -47,7 +70,7 @@ defmodule Salchicha do
 
   Returns an `t:iolist/0` to reduce binary copies. Call `IO.iodata_to_binary/1` if you need a single binary.
   """
-  @spec secretbox(message(), nonce(), secret_key()) :: iolist()
+  @spec secretbox(message(), extended_nonce(), secret_key()) :: iolist()
   def secretbox(message, nonce, key) do
     message = IO.iodata_to_binary(message)
     {cipher_text, tag} = Salsa.xsalsa20_poly1305_encrypt(message, nonce, key)
@@ -68,7 +91,7 @@ defmodule Salchicha do
 
   Returns an `t:iolist/0` to reduce binary copies. Call `IO.iodata_to_binary/1` if you need the message as a binary.
   """
-  @spec secretbox_open(encrypted_message(), nonce(), secret_key()) :: iolist() | :error
+  @spec secretbox_open(encrypted_message(), extended_nonce(), secret_key()) :: iolist() | :error
   def secretbox_open(cipher_message, nonce, key) do
     cipher_message = IO.iodata_to_binary(cipher_message)
     Salsa.xsalsa20_poly1305_decrypt(cipher_message, nonce, key)
@@ -89,7 +112,7 @@ defmodule Salchicha do
 
   Returns an `t:iolist/0` to reduce binary copies. Call `IO.iodata_to_binary/1` if you need a single binary.
   """
-  @spec xchacha20_poly1305_encrypt(message(), nonce(), secret_key(), aad()) :: iolist()
+  @spec xchacha20_poly1305_encrypt(message(), extended_nonce(), secret_key(), aad()) :: iolist()
   def xchacha20_poly1305_encrypt(message, nonce, key, aad \\ <<>>) do
     {cipher_text, tag} = Chacha.xchacha20_poly1305_encrypt(message, nonce, key, aad)
     [cipher_text, tag]
@@ -108,7 +131,7 @@ defmodule Salchicha do
 
   The return value is the decrypted plaintext as a binary or `:error` if authentication failed.
   """
-  @spec xchacha20_poly1305_decrypt(encrypted_message(), nonce(), secret_key(), aad()) ::
+  @spec xchacha20_poly1305_decrypt(encrypted_message(), extended_nonce(), secret_key(), aad()) ::
           binary() | :error
   def xchacha20_poly1305_decrypt(cipher_message, nonce, key, aad \\ <<>>) do
     cipher_message = IO.iodata_to_binary(cipher_message)
@@ -129,7 +152,7 @@ defmodule Salchicha do
   by returning the tag and cipher text separately in a tuple in the form `{cipher_text, tag}`.
   Both `cipher_text` and `tag` will already be binaries.
   """
-  @spec xchacha20_poly1305_encrypt_detached(message(), nonce(), secret_key(), aad()) ::
+  @spec xchacha20_poly1305_encrypt_detached(message(), extended_nonce(), secret_key(), aad()) ::
           {cipher_text(), tag()}
   def xchacha20_poly1305_encrypt_detached(message, nonce, key, aad \\ <<>>) do
     Chacha.xchacha20_poly1305_encrypt(message, nonce, key, aad)
@@ -156,7 +179,7 @@ defmodule Salchicha do
   """
   @spec xchacha20_poly1305_decrypt_detached(
           encrypted_message(),
-          nonce(),
+          extended_nonce(),
           secret_key(),
           aad(),
           tag()
@@ -166,16 +189,16 @@ defmodule Salchicha do
   end
 
   @doc """
-  Generates a random 24-byte nonce
+  Generates a random 24-byte extended nonce
 
-  XSalsa20 and XChaCha20 use a 24-byte nonce (initialization vector), up from the 8 and 8-12 byte nonces
+  XSalsa20 and XChaCha20 use a 24-byte nonce, up from the 8 and 8/12 byte nonces
   of the respective Salsa20 and ChaCha20 ciphers.
 
   You should never reuse the same nonce for a given secret key. 24 bytes are said to be large enough
   to generate nonces randomly - doing so would be ill-advised with 8-byte nonces since collision would
   be much more likely.
   """
-  @spec generate_nonce() :: nonce()
+  @spec generate_nonce() :: extended_nonce()
   def generate_nonce do
     :crypto.strong_rand_bytes(@nonce_size)
   end
