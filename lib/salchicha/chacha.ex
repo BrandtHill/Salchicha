@@ -4,8 +4,8 @@ defmodule Salchicha.Chacha do
 
   > ### Internal module {: .info}
   >
-  > This module is not intended to be used directly and is
-  > documented for completeness and curious cryptographic cats.
+  > This module is documented for completeness and for curious cryptographers.
+  > It contains some ChaCha primitives that you likely won't need to use directly.
 
   ### Purpose
 
@@ -22,7 +22,7 @@ defmodule Salchicha.Chacha do
   ### Implementation
 
   The HChaCha20 function takes the first 16 bytes of the extended 24-byte XChaCha20 nonce,
-  expands the key and the 16-byte nonce slice into a block in place of the block count and
+  expands the key and the 16-byte nonce slice into a block in place of the block counter and
   usual smaller nonce. That block has 20 rounds of mutation, and instead of summing the block
   with its starting state as is done with keystream generation, 8 of the 16 32-bit words are taken
   and used as the sub-key, which is the input key for the chacha20 cipher. The sub-nonce is the latter
@@ -113,9 +113,10 @@ defmodule Salchicha.Chacha do
     Enum.reduce(1..10, block, fn _, t -> double_round(t) end)
   end
 
-  defp expand(<<key::bytes-32>>, <<nonce::bytes-12>>, block_count) when is_integer(block_count) do
-    # Full input is 32-bit little-endian block count concatenated with 96-bit nonce
-    input = <<block_count::little-32>> <> nonce
+  defp expand(<<key::bytes-32>>, <<nonce::bytes-12>>, block_counter)
+       when is_integer(block_counter) do
+    # Full input is 32-bit little-endian block counter concatenated with 96-bit nonce
+    input = <<block_counter::little-32>> <> nonce
     expand(key, input)
   end
 
@@ -152,10 +153,10 @@ defmodule Salchicha.Chacha do
       x14::little-32, x15::little-32>>
   end
 
-  defp keystream_block(key, nonce, block_count) do
+  defp keystream_block(key, nonce, block_counter) do
     block =
       key
-      |> expand(nonce, block_count)
+      |> expand(nonce, block_counter)
       |> block_binary_to_tuple()
 
     block
@@ -163,23 +164,23 @@ defmodule Salchicha.Chacha do
     |> sum_blocks(block)
   end
 
-  defp crypt(key, nonce, message, block_count, outputs \\ [])
+  defp crypt(key, nonce, message, block_counter, outputs \\ [])
 
-  defp crypt(key, nonce, <<message::bytes-64, rest::binary>>, block_count, outputs)
+  defp crypt(key, nonce, <<message::bytes-64, rest::binary>>, block_counter, outputs)
        when byte_size(rest) > 0 do
-    output_block = crypt_block(key, nonce, message, block_count)
-    crypt(key, nonce, rest, block_count + 1, [output_block | outputs])
+    output_block = crypt_block(key, nonce, message, block_counter)
+    crypt(key, nonce, rest, block_counter + 1, [output_block | outputs])
   end
 
-  defp crypt(key, nonce, <<message::binary>>, block_count, outputs) do
-    output_block = crypt_block(key, nonce, message, block_count)
+  defp crypt(key, nonce, <<message::binary>>, block_counter, outputs) do
+    output_block = crypt_block(key, nonce, message, block_counter)
     _final_outputs = Enum.reverse([output_block | outputs])
   end
 
-  defp crypt_block(_key, _nonce, <<>>, _block_count), do: <<>>
+  defp crypt_block(_key, _nonce, <<>>, _block_counter), do: <<>>
 
-  defp crypt_block(key, nonce, message, block_count) do
-    keystream = keystream_block(key, nonce, block_count)
+  defp crypt_block(key, nonce, message, block_counter) do
+    keystream = keystream_block(key, nonce, block_counter)
     bxor_block(keystream, message)
   end
 
@@ -202,8 +203,13 @@ defmodule Salchicha.Chacha do
     ]
   end
 
-  @spec xchacha20_poly1305_encrypt_pure(binary(), <<_::192>>, <<_::256>>, binary()) ::
-          {iolist(), <<_::128>>}
+  @spec xchacha20_poly1305_encrypt_pure(
+          Salchicha.message(),
+          Salchicha.extended_nonce(),
+          Salchicha.secret_key(),
+          Salchicha.aad()
+        ) ::
+          {cipher_text :: iolist(), Salchicha.tag()}
   def xchacha20_poly1305_encrypt_pure(
         plain_text,
         <<nonce::bytes-24>> = _nonce,
@@ -214,8 +220,14 @@ defmodule Salchicha.Chacha do
     chacha20_poly1305_encrypt_pure(plain_text, xchacha_nonce, xchacha_key, aad)
   end
 
-  @spec xchacha20_poly1305_decrypt_pure(binary(), <<_::192>>, <<_::256>>, binary(), <<_::128>>) ::
-          iolist() | :error
+  @spec xchacha20_poly1305_decrypt_pure(
+          cipher_text :: iodata(),
+          Salchicha.extended_nonce(),
+          Salchicha.secret_key(),
+          Salchicha.aad(),
+          Salchicha.tag()
+        ) ::
+          plain_text :: iolist() | :error
   def xchacha20_poly1305_decrypt_pure(
         plain_text,
         <<nonce::bytes-24>> = _nonce,
@@ -227,16 +239,22 @@ defmodule Salchicha.Chacha do
     chacha20_poly1305_decrypt_pure(plain_text, xchacha_nonce, xchacha_key, aad, tag)
   end
 
-  @spec chacha20_poly1305_encrypt_pure(binary(), <<_::96>>, <<_::256>>, binary()) ::
-          {iolist(), <<_::128>>}
+  @spec chacha20_poly1305_encrypt_pure(
+          Salchicha.message(),
+          Salchicha.chacha_nonce(),
+          Salchicha.secret_key(),
+          Salchicha.aad()
+        ) ::
+          {cipher_text :: iolist(), Salchicha.tag()}
   def chacha20_poly1305_encrypt_pure(
         plain_text,
         <<nonce::bytes-12>> = _nonce,
         <<key::bytes-32>> = _key,
         aad
       ) do
-    [<<mac_otp::bytes-32, _discard::bytes-32>>] = crypt(key, nonce, zeros(64), _block_count = 0)
-    cipher_text = crypt(key, nonce, plain_text, _block_count = 1)
+    plain_text = IO.iodata_to_binary(plain_text)
+    [<<mac_otp::bytes-32, _discard::bytes-32>>] = crypt(key, nonce, zeros(64), _block_counter = 0)
+    cipher_text = crypt(key, nonce, plain_text, _block_counter = 1)
     mac_input = mac_input(aad, cipher_text)
 
     tag = :crypto.mac(:poly1305, mac_otp, mac_input)
@@ -244,8 +262,14 @@ defmodule Salchicha.Chacha do
     {cipher_text, tag}
   end
 
-  @spec chacha20_poly1305_decrypt_pure(binary(), <<_::96>>, <<_::256>>, binary(), <<_::128>>) ::
-          iolist() | :error
+  @spec chacha20_poly1305_decrypt_pure(
+          cipher_text :: iodata(),
+          Salchicha.chacha_nonce(),
+          Salchicha.secret_key(),
+          Salchicha.aad(),
+          Salchicha.tag()
+        ) ::
+          plain_text :: iolist() | :error
   def chacha20_poly1305_decrypt_pure(
         cipher_text,
         <<nonce::bytes-12>> = _nonce,
@@ -253,18 +277,24 @@ defmodule Salchicha.Chacha do
         aad,
         <<tag::bytes-16>> = _tag
       ) do
-    [<<mac_otp::bytes-32, _discard::bytes-32>>] = crypt(key, nonce, zeros(64), _block_count = 0)
+    cipher_text = IO.iodata_to_binary(cipher_text)
+    [<<mac_otp::bytes-32, _discard::bytes-32>>] = crypt(key, nonce, zeros(64), _block_counter = 0)
 
     mac_input = mac_input(aad, cipher_text)
 
     case :crypto.mac(:poly1305, mac_otp, mac_input) do
-      ^tag -> crypt(key, nonce, cipher_text, _block_count = 1)
+      ^tag -> crypt(key, nonce, cipher_text, _block_counter = 1)
       _error -> :error
     end
   end
 
-  @spec xchacha20_poly1305_encrypt(binary(), <<_::192>>, <<_::256>>, binary()) ::
-          {binary(), <<_::128>>}
+  @spec xchacha20_poly1305_encrypt(
+          Salchicha.message(),
+          Salchicha.extended_nonce(),
+          Salchicha.secret_key(),
+          Salchicha.aad()
+        ) ::
+          {cipher_text :: binary(), Salchicha.tag()}
   def xchacha20_poly1305_encrypt(
         plain_text,
         <<nonce::bytes-24>> = _nonce,
@@ -284,8 +314,14 @@ defmodule Salchicha.Chacha do
       )
   end
 
-  @spec xchacha20_poly1305_decrypt(binary(), <<_::192>>, <<_::256>>, binary(), <<_::128>>) ::
-          binary() | :error
+  @spec xchacha20_poly1305_decrypt(
+          cipher_text :: iodata(),
+          Salchicha.extended_nonce(),
+          Salchicha.secret_key(),
+          Salchicha.aad(),
+          Salchicha.tag()
+        ) ::
+          plain_text :: binary() | :error
   def xchacha20_poly1305_decrypt(
         cipher_text,
         <<nonce::bytes-24>> = _nonce,
@@ -312,9 +348,9 @@ defmodule Salchicha.Chacha do
   XOR a message (encrypt or decrypt) with ChaCha20.
   This uses 12 byte nonces and isn't authenticated with Poly1305 MAC.
 
-  The IETF standardized version of ChaCha20 uses 12 byte nonces and 4 byte block
-  count instead of 8 byte nonces and 8 byte block count.
-  The IETF standard's 4 byte (32 bit) block count means messages are limited to 256GB:
+  The IETF standardized version of ChaCha20 uses 12 byte nonces and a 4 byte block
+  counter instead of 8 byte nonces and an 8 byte block counter.
+  The IETF standard's 4 byte (32 bit) block counter means messages are limited to 256GB:
   2^32 blocks (4 GigaBlocks) * 64 bytes per block = 256GB.
 
   Because of how the block state is arranged in the cipher, if you take an 8-byte nonce
@@ -323,9 +359,11 @@ defmodule Salchicha.Chacha do
   the XChaCha20 sub-nonce derived from the 24-byte extended nonce is simply the last 8 byte
   prepended with 4 zeros.
 
-  Block count starts at 0 by default.
+  Block counter starts at 0 by default.
 
-  Implemented in Elixir. Equivalent NIF-powered version of this would be
+  Implemented in Elixir.
+
+  Equivalent NIF-powered version of this would be
   ```elixir
   # Encrypt
   :crypto.crypto_one_time(:chacha20, key, iv, plaintext, _encrypt = true)
@@ -336,18 +374,18 @@ defmodule Salchicha.Chacha do
 
   Some things worth noting from the above usage of the `:crypto` module function:
     - The initialization vector (iv) arg is NOT simply the nonce - it the full 16-byte user-controlled input.
-      - For a 8 or 12 byte nonce, you'd have to prepend your initial block count in little-endian.
-        - `iv = <<_block_count=0::little-32>> <> my_twelve_byte_nonce`
-        - `iv = <<_block_count=0::little-64>> <> my_eight_byte_nonce`
+      - For an 8 or 12 byte nonce, you'd have to prepend your initial block counter in little-endian.
+        - `iv = <<_block_counter=0::little-32>> <> my_twelve_byte_nonce`
+        - `iv = <<_block_counter=0::little-64>> <> my_eight_byte_nonce`
       - How annoying!
     - The fifth argument, the boolean `encrypt` flag, is irrelevant.
       - This is an unauthenticated stream cipher where the input message is XOR'd with the keystream.
         - Encryption and decryption are fundamentally the same operation.
-        - While the flag is required, whether it's to true or false makes no difference.
+        - While the flag is required, whether it's `true` or `false` makes no difference.
       - How annoying!
   """
   @spec chacha20_xor(
-          binary(),
+          message :: iodata(),
           Salchicha.chacha_nonce(),
           Salchicha.secret_key(),
           non_neg_integer()
@@ -356,8 +394,9 @@ defmodule Salchicha.Chacha do
         message,
         <<nonce::bytes-12>> = _nonce,
         <<key::bytes-32>> = _key,
-        initial_block_count \\ 0
+        initial_block_counter \\ 0
       ) do
-    crypt(key, nonce, message, initial_block_count)
+    message = IO.iodata_to_binary(message)
+    crypt(key, nonce, message, initial_block_counter)
   end
 end

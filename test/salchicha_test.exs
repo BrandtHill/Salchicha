@@ -66,7 +66,7 @@ defmodule SalchichaTest do
       # https://datatracker.ietf.org/doc/html/rfc7539#appendix-A.2
       key = zeros(32)
       nonce = zeros(12)
-      initial_block_count = 0
+      initial_block_counter = 0
       plain_text = zeros(64)
 
       expected =
@@ -75,7 +75,7 @@ defmodule SalchichaTest do
           72, 141, 119, 36, 224, 63, 184, 216, 74, 55, 106, 67, 184, 244, 21, 24, 161, 28, 195,
           135, 182, 105, 178, 238, 101, 134>>
 
-      result = Chacha.chacha20_xor(plain_text, nonce, key, initial_block_count)
+      result = Chacha.chacha20_xor(plain_text, nonce, key, initial_block_counter)
       assert IO.iodata_to_binary(result) == expected
     end
 
@@ -83,7 +83,7 @@ defmodule SalchichaTest do
       # https://datatracker.ietf.org/doc/html/rfc7539#appendix-A.2
       key = <<1::unit(8)-size(32)>>
       nonce = <<2::unit(8)-size(12)>>
-      initial_block_count = 1
+      initial_block_counter = 1
 
       plain_text =
         "Any submission to the IETF intended by the Contributor for publication as all or part of an IETF Internet-Draft or RFC and any statement made within the context of an IETF activity is considered an \"IETF Contribution\". Such statements include oral statements in IETF sessions, as well as written and electronic communications made at any time or place, which are addressed to"
@@ -110,7 +110,7 @@ defmodule SalchichaTest do
           175, 179, 65, 178, 56, 77, 217, 2, 243, 209, 171, 122, 198, 29, 210, 156, 111, 33, 186,
           91, 134, 47, 55, 48, 227, 124, 253, 196, 253, 128, 108, 34, 242, 33>>
 
-      result = Chacha.chacha20_xor(plain_text, nonce, key, initial_block_count)
+      result = Chacha.chacha20_xor(plain_text, nonce, key, initial_block_counter)
       assert IO.iodata_to_binary(result) == expected
     end
 
@@ -142,7 +142,7 @@ defmodule SalchichaTest do
         :crypto.crypto_one_time(
           :chacha20,
           key,
-          <<_block_count = 0::little-32>> <> twelve_byte_nonce,
+          <<_block_counter = 0::little-32>> <> twelve_byte_nonce,
           plaintext,
           true
         )
