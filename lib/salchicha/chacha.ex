@@ -126,11 +126,18 @@ defmodule Salchicha.Chacha do
 
   @doc """
   HChaCha20 hash function for deriving a sub-key for XChaCha20. Crypto primitive.
+
+  Second arg can be extended nonce (first 16 bytes of the nonce will be used) or 16 bytes.
   """
   @spec hchacha20(Salchicha.secret_key(), Salchicha.extended_nonce()) :: Salchicha.secret_key()
+  @spec hchacha20(Salchicha.secret_key(), input_vector :: <<_::128>>) :: Salchicha.secret_key()
   def hchacha20(<<key::bytes-32>> = _key, <<first_sixteen::bytes-16, _last::bytes-8>> = _nonce) do
+    hchacha20(key, first_sixteen)
+  end
+
+  def hchacha20(<<key::bytes-32>> = _key, <<vector::bytes-16>> = _input_vector) do
     key
-    |> expand(first_sixteen)
+    |> expand(vector)
     |> block_binary_to_tuple()
     |> twenty_rounds()
     |> hchacha20_block_tuple_to_binary()
@@ -203,6 +210,7 @@ defmodule Salchicha.Chacha do
     ]
   end
 
+  @doc since: "0.2.0"
   @spec xchacha20_poly1305_encrypt_pure(
           Salchicha.message(),
           Salchicha.extended_nonce(),
@@ -220,6 +228,7 @@ defmodule Salchicha.Chacha do
     chacha20_poly1305_encrypt_pure(plain_text, xchacha_nonce, xchacha_key, aad)
   end
 
+  @doc since: "0.2.0"
   @spec xchacha20_poly1305_decrypt_pure(
           cipher_text :: iodata(),
           Salchicha.extended_nonce(),
@@ -239,6 +248,7 @@ defmodule Salchicha.Chacha do
     chacha20_poly1305_decrypt_pure(plain_text, xchacha_nonce, xchacha_key, aad, tag)
   end
 
+  @doc since: "0.2.0"
   @spec chacha20_poly1305_encrypt_pure(
           Salchicha.message(),
           Salchicha.chacha_nonce(),
@@ -262,6 +272,7 @@ defmodule Salchicha.Chacha do
     {cipher_text, tag}
   end
 
+  @doc since: "0.2.0"
   @spec chacha20_poly1305_decrypt_pure(
           cipher_text :: iodata(),
           Salchicha.chacha_nonce(),
@@ -384,6 +395,7 @@ defmodule Salchicha.Chacha do
         - While the flag is required, whether it's `true` or `false` makes no difference.
       - How annoying!
   """
+  @doc since: "0.2.0"
   @spec chacha20_xor(
           message :: iodata(),
           Salchicha.chacha_nonce(),

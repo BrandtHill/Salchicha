@@ -8,7 +8,7 @@ defmodule Salchicha.MixProject do
   def project do
     [
       app: :salchicha,
-      version: "0.3.0",
+      version: "0.4.0",
       elixir: "~> 1.12",
       name: "Salchicha",
       source_url: "https://github.com/BrandtHill/Salchicha",
@@ -38,7 +38,8 @@ defmodule Salchicha.MixProject do
   def docs do
     [
       main: "Salchicha",
-      source_ref: "master"
+      source_ref: "master",
+      extras: ["CHANGELOG.md"]
     ]
   end
 
@@ -50,11 +51,13 @@ defmodule Salchicha.MixProject do
       files: [
         "lib",
         "README*",
+        "CHANGELOG*",
         "LICENSE*",
         "mix.exs"
       ],
       links: %{
-        "GitHub" => "https://github.com/BrandtHill/Salchicha"
+        "GitHub" => "https://github.com/BrandtHill/Salchicha",
+        "Changelog" => "https://hexdocs.pm/salchicha/changelog.html"
       }
     ]
   end

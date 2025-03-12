@@ -173,4 +173,84 @@ defmodule SalchichaTest do
       :error = Salchicha.secretbox_open(altered_cipher_text, nonce, key)
     end
   end
+
+  describe "X25519" do
+    setup do
+      {alice_public, alice_private} = Salchicha.generate_box_keypair()
+      {bob_public, bob_private} = Salchicha.generate_box_keypair()
+
+      %{
+        alice_public: alice_public,
+        alice_private: alice_private,
+        bob_public: bob_public,
+        bob_private: bob_private
+      }
+    end
+
+    test "compute_shared_secret produces same result for peers", %{
+      alice_public: alice_public,
+      alice_private: alice_private,
+      bob_public: bob_public,
+      bob_private: bob_private
+    } do
+      alice_secret = Salchicha.compute_shared_secret(bob_public, alice_private)
+      bob_secret = Salchicha.compute_shared_secret(alice_public, bob_private)
+
+      assert alice_secret == bob_secret
+    end
+
+    test "box/4 and box_open/4", %{
+      alice_public: alice_public,
+      alice_private: alice_private,
+      bob_public: bob_public,
+      bob_private: bob_private,
+      nonce: nonce,
+      plaintext: plaintext
+    } do
+      {shared_secret, encrypted_message} =
+        Salchicha.box(plaintext, nonce, bob_public, alice_private)
+
+      {^shared_secret, decrypted_message} =
+        Salchicha.box_open(encrypted_message, nonce, alice_public, bob_private)
+
+      assert IO.iodata_to_binary(decrypted_message) == plaintext
+
+      # Verify same results with secretbox[_open]/3
+
+      encrypted_message_secretbox = Salchicha.secretbox(plaintext, nonce, shared_secret)
+
+      decrypted_message_secretbox_open =
+        Salchicha.secretbox_open(encrypted_message, nonce, shared_secret)
+
+      assert encrypted_message == encrypted_message_secretbox
+      assert decrypted_message == decrypted_message_secretbox_open
+    end
+  end
+
+  describe "Ed25519" do
+    setup do
+      {public, private} = Salchicha.generate_sign_keypair()
+
+      %{public_key: public, private_key: private}
+    end
+
+    test "signature verification", %{public_key: public, private_key: private, plaintext: message} do
+      <<first_byte, rest::binary>> = signature = Salchicha.sign(message, private)
+
+      assert Salchicha.signature_valid?(message, signature, public)
+      refute Salchicha.signature_valid?(message <> <<"!!!">>, signature, public)
+
+      refute Salchicha.signature_valid?(
+               message,
+               <<Bitwise.bxor(first_byte, 0xFF), rest::binary>>,
+               public
+             )
+
+      refute Salchicha.signature_valid?(
+               message,
+               signature,
+               Salchicha.generate_sign_keypair() |> elem(0)
+             )
+    end
+  end
 end

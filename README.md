@@ -12,7 +12,7 @@ The package can be installed by adding `salchicha` to your list of dependencies 
 ```elixir
 def deps do
   [
-    {:salchicha, "~> 0.3"}
+    {:salchicha, "~> 0.4"}
   ]
 end
 ```
@@ -38,9 +38,9 @@ NIFs.
 [KCl](https://github.com/mwmiller/kcl) is an impressive pure-elixir NaCl/libsodium
 library we had previously used for Discord Voice encryption in [nostrum](https://github.com/Kraigie/nostrum). While adding support for newer encryption modes, I opted to remove
 `:kcl` in favor of leveraging what was available via erlang's native `:crypto` module
-and implementing the rest more adroitly. In this library the functions have been made
-more general-purpose and have analogues in the NaCl/libsodium API.
+and implementing the rest more adroitly. That code has since been migrated into this library,
+and more of the NaCl/libsodium API has been added.
 
-NaCl/libsodium (and KCl) has a lot of other functionality for public key cryptography
-via EC25519, which erlang's `:crypto` module already supports. I may add some of that 
-here in the future but in the meantime I've just brought over the XSalsa and XChaCha functions.
+NaCl/libsodium (and Kcl) has functionality for public key cryptography, namely ECDH key exchange via
+X25519 and EdDSA signatures via Ed25519. The `:crypto` module already supports these elliptic
+curves, so I've added some sodium-flavored wrappers around those functions.

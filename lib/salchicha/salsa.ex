@@ -29,7 +29,7 @@ defmodule Salchicha.Salsa do
   - Minimized the number binary copies, returning iolists when appropriate, instead of concatenating binaries
   - XOR whole keystream and message blocks instead of XOR'ing one byte at a time
   - Poly1305 MAC handled by `:crypto` module instead of implemented in elixir
-  - Only supporting Salsa/ChaCha family ciphers, not full NaCl/libsodium API
+  - Curve25519 public-key crypto functionality handled by `:crypto` module
 
   Additionally there appears to be a bug in how Kcl serializes the 16-byte block counter during key expansion:
   According to the spec it's supposed to be little endian, and it happens to be for blocks 0-255, but for larger
@@ -129,11 +129,18 @@ defmodule Salchicha.Salsa do
 
   @doc """
   HSalsa20 hash function for deriving a sub-key for XSalsa20. Crypto primitive.
+
+  Second arg can be extended nonce (first 16 bytes of the nonce will be used) or 16 bytes.
   """
   @spec hsalsa20(Salchicha.secret_key(), Salchicha.extended_nonce()) :: Salchicha.secret_key()
+  @spec hsalsa20(Salchicha.secret_key(), input_vector :: <<_::128>>) :: Salchicha.secret_key()
   def hsalsa20(<<key::bytes-32>> = _key, <<first_sixteen::bytes-16, _last::bytes-8>> = _nonce) do
+    hsalsa20(key, first_sixteen)
+  end
+
+  def hsalsa20(<<key::bytes-32>> = _key, <<vector::bytes-16>> = _input_vector) do
     key
-    |> expand(first_sixteen)
+    |> expand(vector)
     |> block_binary_to_tuple()
     |> twenty_rounds()
     |> hsalsa20_block_tuple_to_binary()
@@ -268,6 +275,7 @@ defmodule Salchicha.Salsa do
     salsa20_poly1305_decrypt(cipher_text, xsalsa_nonce, xsalsa_key, tag)
   end
 
+  @doc since: "0.3.0"
   @spec salsa20_poly1305_encrypt(
           Salchicha.message(),
           Salchicha.salsa_nonce(),
@@ -295,6 +303,7 @@ defmodule Salchicha.Salsa do
     {cipher_text, tag}
   end
 
+  @doc since: "0.3.0"
   @spec salsa20_poly1305_decrypt(
           Salchicha.cipher_text(),
           Salchicha.salsa_nonce(),
@@ -332,6 +341,7 @@ defmodule Salchicha.Salsa do
   This uses 8 byte nonces and isn't authenticated with Poly1305 MAC.
   Block counter starts at 0 by default.
   """
+  @doc since: "0.2.0"
   @spec salsa20_xor(
           message :: iodata(),
           Salchicha.salsa_nonce(),
