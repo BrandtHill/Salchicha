@@ -25,7 +25,7 @@ defmodule Salchicha.Salsa do
 
   Some of the key differences in our implementation compared to Kcl
   - Heavy use of explicit binary pattern matching instead of more traditional implicit enumeration
-  - Intermediate block state stored in a 16-element tuple that is mutated during the 20-round hot loop instead of lists
+  - Intermediate block state stored in a 16-element tuple that is mutated once during the 20-round hot loop instead of lists
   - Minimized the number binary copies, returning iolists when appropriate, instead of concatenating binaries
   - XOR whole keystream and message blocks instead of XOR'ing one byte at a time
   - Poly1305 MAC handled by `:crypto` module instead of implemented in elixir
@@ -66,6 +66,9 @@ defmodule Salchicha.Salsa do
 
   import Bitwise
 
+  require Salchicha.Macros
+  alias Salchicha.Macros
+
   @salsa_constant ~c"expand 32-byte k"
                   |> Enum.chunk_every(4)
                   |> Enum.map(&to_string/1)
@@ -82,32 +85,48 @@ defmodule Salchicha.Salsa do
     {a, b, c, d}
   end
 
-  defp quarter_round_on(tuple, index_a, index_b, index_c, index_d) do
+  defp quarter_round_on(tuple, {index_a, index_b, index_c, index_d} = indexes) do
     a = elem(tuple, index_a)
     b = elem(tuple, index_b)
     c = elem(tuple, index_c)
     d = elem(tuple, index_d)
 
-    {a, b, c, d} = quarter_round(a, b, c, d)
+    {_a, _b, _c, _d} = values = quarter_round(a, b, c, d)
 
-    tuple
-    |> put_elem(index_a, a)
-    |> put_elem(index_b, b)
-    |> put_elem(index_c, c)
-    |> put_elem(index_d, d)
+    update_tuple(tuple, indexes, values)
   end
+
+  # Define the four quarter rounds of a column round
+  @column_quarter_round_1 {0, 4, 8, 12}
+  @column_quarter_round_2 {5, 9, 13, 1}
+  @column_quarter_round_3 {10, 14, 2, 6}
+  @column_quarter_round_4 {15, 3, 7, 11}
+  Macros.def_update_tuple(0, 4, 8, 12)
+  Macros.def_update_tuple(5, 9, 13, 1)
+  Macros.def_update_tuple(10, 14, 2, 6)
+  Macros.def_update_tuple(15, 3, 7, 11)
+
+  # Define the four quarter rounds of a row round
+  @row_quarter_round_1 {0, 1, 2, 3}
+  @row_quarter_round_2 {5, 6, 7, 4}
+  @row_quarter_round_3 {10, 11, 8, 9}
+  @row_quarter_round_4 {15, 12, 13, 14}
+  Macros.def_update_tuple(0, 1, 2, 3)
+  Macros.def_update_tuple(5, 6, 7, 4)
+  Macros.def_update_tuple(10, 11, 8, 9)
+  Macros.def_update_tuple(15, 12, 13, 14)
 
   # Column round followed by row round
   defp double_round(tuple) do
     tuple
-    |> quarter_round_on(0, 4, 8, 12)
-    |> quarter_round_on(5, 9, 13, 1)
-    |> quarter_round_on(10, 14, 2, 6)
-    |> quarter_round_on(15, 3, 7, 11)
-    |> quarter_round_on(0, 1, 2, 3)
-    |> quarter_round_on(5, 6, 7, 4)
-    |> quarter_round_on(10, 11, 8, 9)
-    |> quarter_round_on(15, 12, 13, 14)
+    |> quarter_round_on(@column_quarter_round_1)
+    |> quarter_round_on(@column_quarter_round_2)
+    |> quarter_round_on(@column_quarter_round_3)
+    |> quarter_round_on(@column_quarter_round_4)
+    |> quarter_round_on(@row_quarter_round_1)
+    |> quarter_round_on(@row_quarter_round_2)
+    |> quarter_round_on(@row_quarter_round_3)
+    |> quarter_round_on(@row_quarter_round_4)
   end
 
   defp twenty_rounds(block) do

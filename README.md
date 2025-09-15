@@ -12,7 +12,7 @@ The package can be installed by adding `salchicha` to your list of dependencies 
 ```elixir
 def deps do
   [
-    {:salchicha, "~> 0.4"}
+    {:salchicha, "~> 0.5"}
   ]
 end
 ```

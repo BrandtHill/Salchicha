@@ -8,7 +8,7 @@ defmodule Salchicha.MixProject do
   def project do
     [
       app: :salchicha,
-      version: "0.4.0",
+      version: "0.5.0",
       elixir: "~> 1.12",
       name: "Salchicha",
       source_url: "https://github.com/BrandtHill/Salchicha",
@@ -31,6 +31,7 @@ defmodule Salchicha.MixProject do
   # Run "mix help deps" to learn about dependencies.
   def deps do
     [
+      {:benchee, "~> 1.0", only: :dev},
       {:ex_doc, "~> 0.37", only: :dev, runtime: false}
     ]
   end

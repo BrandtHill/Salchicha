@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.0 (2025-09-14)
+  * Performance optimizations
+    * Added `Salchicha.Macros.def_tuple_update/3` (internal) to generate functions to efficiently update 4 tuple elements in a single operation during quarter rounds
+      * ~3.1x reduced memory usage for 100 KB message
+      * ~1.6x faster for 100 KB message
+      * Improvements most significant for Salsa as ChaCha functions leverage NIF by default
+  * Add `:benchee` as dev dependency for benchmarking locally
+  * Add test vector for Salsa cipher
+  * Update `:ex_doc`
+
 ## v0.4.0 (2025-03-12)
   * Add Changelog
   * Add NaCl public-key encryption via X25519 ECDH

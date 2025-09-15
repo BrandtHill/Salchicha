@@ -58,6 +58,9 @@ defmodule Salchicha.Chacha do
 
   import Bitwise
 
+  require Salchicha.Macros
+  alias Salchicha.Macros
+
   import Salchicha.Salsa, only: [block_binary_to_tuple: 1, sum_blocks: 2, bxor_block: 2]
 
   @chacha_constant "expand 32-byte k"
@@ -81,32 +84,48 @@ defmodule Salchicha.Chacha do
     {a, b, c, d}
   end
 
-  defp quarter_round_on(tuple, index_a, index_b, index_c, index_d) do
+  defp quarter_round_on(tuple, {index_a, index_b, index_c, index_d} = indexes) do
     a = elem(tuple, index_a)
     b = elem(tuple, index_b)
     c = elem(tuple, index_c)
     d = elem(tuple, index_d)
 
-    {a, b, c, d} = quarter_round(a, b, c, d)
+    {_a, _b, _c, _d} = values = quarter_round(a, b, c, d)
 
-    tuple
-    |> put_elem(index_a, a)
-    |> put_elem(index_b, b)
-    |> put_elem(index_c, c)
-    |> put_elem(index_d, d)
+    update_tuple(tuple, indexes, values)
   end
+
+  # Define the four quarter rounds of a column round
+  @column_quarter_round_1 {0, 4, 8, 12}
+  @column_quarter_round_2 {1, 5, 9, 13}
+  @column_quarter_round_3 {2, 6, 10, 14}
+  @column_quarter_round_4 {3, 7, 11, 15}
+  Macros.def_update_tuple(0, 4, 8, 12)
+  Macros.def_update_tuple(1, 5, 9, 13)
+  Macros.def_update_tuple(2, 6, 10, 14)
+  Macros.def_update_tuple(3, 7, 11, 15)
+
+  # Define the four quarter rounds of a diagonal round
+  @diagonal_quarter_round_1 {0, 5, 10, 15}
+  @diagonal_quarter_round_2 {1, 6, 11, 12}
+  @diagonal_quarter_round_3 {2, 7, 8, 13}
+  @diagonal_quarter_round_4 {3, 4, 9, 14}
+  Macros.def_update_tuple(0, 5, 10, 15)
+  Macros.def_update_tuple(1, 6, 11, 12)
+  Macros.def_update_tuple(2, 7, 8, 13)
+  Macros.def_update_tuple(3, 4, 9, 14)
 
   # Column round followed by diagonal round
   defp double_round(tuple) do
     tuple
-    |> quarter_round_on(0, 4, 8, 12)
-    |> quarter_round_on(1, 5, 9, 13)
-    |> quarter_round_on(2, 6, 10, 14)
-    |> quarter_round_on(3, 7, 11, 15)
-    |> quarter_round_on(0, 5, 10, 15)
-    |> quarter_round_on(1, 6, 11, 12)
-    |> quarter_round_on(2, 7, 8, 13)
-    |> quarter_round_on(3, 4, 9, 14)
+    |> quarter_round_on(@column_quarter_round_1)
+    |> quarter_round_on(@column_quarter_round_2)
+    |> quarter_round_on(@column_quarter_round_3)
+    |> quarter_round_on(@column_quarter_round_4)
+    |> quarter_round_on(@diagonal_quarter_round_1)
+    |> quarter_round_on(@diagonal_quarter_round_2)
+    |> quarter_round_on(@diagonal_quarter_round_3)
+    |> quarter_round_on(@diagonal_quarter_round_4)
   end
 
   defp twenty_rounds(block) do

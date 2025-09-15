@@ -1,6 +1,7 @@
 defmodule SalchichaTest do
   use ExUnit.Case
 
+  alias Salchicha.Salsa
   alias Salchicha.Chacha
 
   setup do
@@ -155,6 +156,20 @@ defmodule SalchichaTest do
   end
 
   describe "Salsa" do
+    test "test vector #1" do
+      # None exist for Salsa, so making our own and verifying with Kcl
+      key = zeros(32)
+      nonce = zeros(8)
+      plain_text = "Hello, World!"
+      initial_block_counter = 0
+      expected = <<210, 242, 154, 55, 244, 96, 82, 76, 249, 120, 11, 69, 100>>
+
+      actual =
+        Salsa.salsa20_xor(plain_text, nonce, key, initial_block_counter) |> IO.iodata_to_binary()
+
+      assert actual == expected
+    end
+
     test "encryption and decryption", %{key: key, nonce: nonce} do
       plain_text = "Hello, World!"
 
